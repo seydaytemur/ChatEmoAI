@@ -56,6 +56,7 @@ namespace ChatEmoAPI.Controllers
         }
 
         [HttpPost]
+        [Microsoft.AspNetCore.Authorization.Authorize]
         public async Task<ActionResult<MessageDto>> CreateMessage(CreateMessageDto createMessageDto)
         {
             try
@@ -65,24 +66,20 @@ namespace ChatEmoAPI.Controllers
                     return BadRequest("Mesaj içeriği boş olamaz");
                 }
 
-                if (string.IsNullOrWhiteSpace(createMessageDto.Username))
+                // Kullanıcı ID'sini token'dan al
+                var userIdClaim = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                if (userIdClaim == null)
                 {
-                    return BadRequest("Kullanıcı adı boş olamaz");
+                    return Unauthorized();
                 }
 
-                // Kullanıcıyı bul veya oluştur
-                var user = await _context.Users
-                    .FirstOrDefaultAsync(u => u.Username == createMessageDto.Username);
+                var userId = int.Parse(userIdClaim.Value);
+                var username = User.Identity?.Name ?? "Unknown";
 
+                var user = await _context.Users.FindAsync(userId);
                 if (user == null)
                 {
-                    user = new User
-                    {
-                        Username = createMessageDto.Username,
-                        CreatedAt = DateTime.UtcNow
-                    };
-                    _context.Users.Add(user);
-                    await _context.SaveChangesAsync();
+                    return Unauthorized("Kullanıcı bulunamadı");
                 }
 
                 // Mesajı oluştur
