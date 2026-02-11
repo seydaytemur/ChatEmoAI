@@ -19,6 +19,8 @@ node_modules/
 *.sqlite
 *.sqlite3
 chatemo.db
+*.db-shm
+*.db-wal
 
 # Build outputs
 dist/
