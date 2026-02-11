@@ -2,7 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
-import re
+from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
+import torch
 
 # FastAPI uygulaması
 app = FastAPI(title="ChatEmo AI Service", version="1.0.0")
@@ -16,46 +17,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Basit duygu analizi fonksiyonu
-def analyze_sentiment_simple(text):
-    """
-    Basit kelime tabanlı duygu analizi
-    """
-    text = text.lower()
-    
-    # Pozitif kelimeler
-    positive_words = [
-        'mutlu', 'sevinçli', 'harika', 'güzel', 'iyi', 'mükemmel', 'süper', 
-        'harika', 'güzel', 'iyi', 'mükemmel', 'süper', 'çok iyi', 'çok güzel',
-        'çok mutlu', 'çok sevinçli', 'çok harika', 'çok süper', 'çok mükemmel',
-        'sevindim', 'mutluyum', 'sevinçliyim', 'harikayım', 'güzelim', 'iyiyim',
-        'mükemmelim', 'süperim', 'harikayım', 'güzelim', 'iyiyim', 'mükemmelim',
-        'süperim', 'çok iyiyim', 'çok güzelim', 'çok mutluyum', 'çok sevinçliyim',
-        'çok harikayım', 'çok süperim', 'çok mükemmelim', 'çok güzelim', 'çok iyiyim'
-    ]
-    
-    # Negatif kelimeler
-    negative_words = [
-        'üzgün', 'kötü', 'berbat', 'korkunç', 'çok kötü', 'çok berbat', 'çok korkunç',
-        'üzgünüm', 'kötüyüm', 'berbatım', 'korkunçum', 'çok kötüyüm', 'çok berbatım',
-        'çok korkunçum', 'üzgünüm', 'kötüyüm', 'berbatım', 'korkunçum', 'çok kötüyüm',
-        'çok berbatım', 'çok korkunçum', 'üzgünüm', 'kötüyüm', 'berbatım', 'korkunçum',
-        'çok kötüyüm', 'çok berbatım', 'çok korkunçum', 'üzgünüm', 'kötüyüm', 'berbatım'
-    ]
-    
-    # Kelime sayılarını hesapla
-    positive_count = sum(1 for word in positive_words if word in text)
-    negative_count = sum(1 for word in negative_words if word in text)
-    
-    # Duygu belirle
-    if positive_count > negative_count:
-        confidence = min(0.8 + (positive_count * 0.05), 1.0)  # Max %100
-        return "pozitif", confidence
-    elif negative_count > positive_count:
-        confidence = min(0.8 + (negative_count * 0.05), 1.0)  # Max %100
-        return "negatif", confidence
-    else:
-        return "nötr", 0.5
+# Global model değişkeni
+sentiment_pipeline = None
+
+@app.on_event("startup")
+async def load_model():
+    global sentiment_pipeline
+    print("AI Modeli yükleniyor... (savasy/bert-base-turkish-sentiment-cased)")
+    try:
+        model_name = "savasy/bert-base-turkish-sentiment-cased"
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        sentiment_pipeline = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
+        print("Model başarıyla yüklendi!")
+    except Exception as e:
+        print(f"Model yüklenirken hata oluştu: {e}")
 
 class SentimentRequest(BaseModel):
     text: str
@@ -67,12 +43,12 @@ class SentimentResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "ChatEmo AI Service is running!"}
+    return {"message": "ChatEmo AI Service is running with BERT model!"}
 
 @app.post("/api/analyze", response_model=SentimentResponse)
 async def analyze_sentiment(request: SentimentRequest):
     """
-    Metni analiz eder ve duygu skorunu döndürür
+    Metni analiz eder ve duygu skorunu döndürür (BERT Modeli ile)
     """
     try:
         if not request.text or request.text.strip() == "":
@@ -82,16 +58,43 @@ async def analyze_sentiment(request: SentimentRequest):
                 original_label="EMPTY"
             )
         
-        # Basit duygu analizi yap
-        sentiment, confidence = analyze_sentiment_simple(request.text)
+        if sentiment_pipeline is None:
+            return SentimentResponse(
+                sentiment="nötr",
+                confidence=0.0,
+                original_label="MODEL_NOT_LOADED"
+            )
+
+        # Model tahmini
+        result = sentiment_pipeline(request.text)[0]
+        label = result['label']
+        score = result['score']
+
+        # Model çıktısını ön işleme ve NÖTR EŞİĞİ (Threshold)
+        # Bu model (savasy/bert-base-turkish-sentiment-cased) binary (pozitif/negatif) çalışıyor.
+        # Nötr cümleler için genellikle düşük skor üretir (örn: 0.5 - 0.6 arası).
+        # Bu yüzden 0.7 altında kalan skorları 'nötr' olarak kabul edeceğiz.
+        
+        THRESHOLD = 0.7
+
+        if score < THRESHOLD:
+            sentiment = "nötr"
+        else:
+            if label.lower() in ['positive', 'label_1', 'pos']:
+                sentiment = "pozitif"
+            elif label.lower() in ['negative', 'label_0', 'neg']:
+                sentiment = "negatif"
+            else:
+                 sentiment = "nötr"
         
         return SentimentResponse(
             sentiment=sentiment,
-            confidence=round(confidence, 3),
-            original_label="SIMPLE_ANALYSIS"
+            confidence=round(score, 3),
+            original_label=label
         )
         
     except Exception as e:
+        print(f"Hata: {e}")
         return SentimentResponse(
             sentiment="nötr",
             confidence=0.0,

@@ -1,4 +1,4 @@
-const API_BASE = (import.meta as any).env.VITE_API_URL || 'http://localhost:5128'
+const API_BASE = (import.meta as any).env.VITE_API_URL || 'http://localhost:5236'
 
 export type CreateMessage = { content: string; username: string }
 
