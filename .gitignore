@@ -141,3 +141,6 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Build Output
+build_output.txt

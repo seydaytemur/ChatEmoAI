@@ -16,10 +16,12 @@ interface MessageItemProps {
 
 export function MessageItem({ message, isMe }: MessageItemProps) {
         return (
-                <div className={`msg ${isMe ? 'me' : 'other'}`}>
+                <div className={`msg ${isMe ? 'me' : ''}`}>
                         <div className="meta">
-                                <b>{message.username}</b>
-                                <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
+                                <span className="sender">{message.username}</span>
+                                <span className="time">
+                                        {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
                         </div>
                         <div className="text">{message.content}</div>
                         <SentimentBadge sentiment={message.sentiment} confidence={message.confidence} />
